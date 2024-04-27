@@ -8,14 +8,15 @@ const {
 } = require('./api');
 const colors = require('colors');
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const main = async () => {
   try {
-    const runCode = async () => {
+    while (true) {
       process.stdout.write('\x1Bc');
       console.log(colors.cyan('========================================'));
       console.log(colors.cyan('=    MintChain Claimer and Injector    ='));
-      console.log(colors.cyan('=     Created by HappyCuanAirdrop      ='));
-      console.log(colors.cyan('=    https://t.me/HappyCuanAirdrop     ='));
+      console.log(colors.cyan('=           Created by Dante4rt        ='));
       console.log(colors.cyan('========================================'));
       console.log();
 
@@ -39,8 +40,9 @@ const main = async () => {
         infoLog(`Energy  : ${energy}`);
 
         const energyList = await fetchEnergy(token);
-        let totalEnergy;
-        let energyClaimed;
+        let totalEnergy = 0;
+        let energyClaimed = 0;
+        let retryCount = 0;
 
         successLog('Energy list retrieved successfully');
         for (const energy of energyList.result) {
@@ -49,28 +51,42 @@ const main = async () => {
           if (energy.freeze == true) {
             infoLog('Skipping claiming energy because it is frozen');
           } else {
-            await claimEnergy(
-              token,
-              energy.uid,
-              energy.amount,
-              energy.includes,
-              energy.type,
-              energy.id
-            );
-            energyClaimed = energy.amount;
-            successLog(
-              `* Claimed ${energy.amount} energy for wallet ${address} *`
-            );
+            while (retryCount < 3) {
+              try {
+                await claimEnergy(token, energy.amount);
+                energyClaimed += energy.amount;
+                successLog(
+                  `* Claimed ${energy.amount} energy for wallet ${address} *`
+                );
+                break; // Exit the retry loop if claim is successful
+              } catch (claimError) {
+                failedLog(`Claiming energy failed for wallet ${address}: ${claimError.message}`);
+                retryCount++;
+                if (retryCount < 3) {
+                  failedLog('Retrying...');
+                } else {
+                  failedLog('Maximum retry attempts reached, skipping to next account...');
+                  break;
+                }
+              }
+            }
+            if (retryCount === 3) continue; // Continue to the next iteration if max retries reached
           }
         }
 
         totalEnergy = energy + energyClaimed;
         if (totalEnergy > 0) {
-          const response = await injectEnergy(token, totalEnergy, address);
-          if (response.msg == 'ok') {
-            successLog(
-              `* Injected ${totalEnergy} energy into ${address}'s tree *`
-            );
+          try {
+            const response = await injectEnergy(token, totalEnergy, address);
+            if (response.msg == 'ok') {
+              successLog(
+                `* Injected ${totalEnergy} energy into ${address}'s tree *`
+              );
+            }
+          } catch (injectError) {
+            failedLog(`Injecting energy failed for wallet ${address}: ${injectError.message}`);
+            failedLog('Skipping to next account...');
+            continue; // Continue to the next iteration
           }
         } else {
           infoLog(`Skipping injection for wallet ${address}`);
@@ -79,14 +95,11 @@ const main = async () => {
         console.log(colors.cyan('========================================'));
         console.log();
       }
-    };
 
-    // Run the code immediately when the script starts
-    await runCode();
-
-    // Set up interval to run the code every 86400 seconds (1 day)
-    setInterval(runCode, 86400 * 1000);
-    console.log("Retrying in 24 hours......");
+      // Wait for 24 hours before starting the next iteration
+      infoLog('All tasks completed. Waiting for 24 hours before starting again...');
+      await delay(24 * 60 * 60 * 1000); // Wait for 24 hours
+    }
   } catch (error) {
     failedLog(error.message);
   }
